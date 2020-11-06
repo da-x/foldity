@@ -1,0 +1,28 @@
+First line.
+>> a
+Here we go
+<< [finished: code 0]
+>> b
+Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Duis malesuada euismod quam, quis accumsan sapien varius a.
+Aliquam metus quam, dapibus nec accumsan quis, finibus ac turpis.
+Morbi ultricies hendrerit condimentum. Cras semper quis nisl quis cursus.
+>> c
+Sub section
+<< 0
+<< [finished]
+Trailing text
+Some text
+More text
+More text
+Cras id enim id felis gravida imperdiet. Ut facilisis, augue
+lacinia commodo blandit, libero risus tincidunt est, sit amet
+venenatis leo urna ut massa. Quisque at ex velit. Curabitur id
+elit vel nunc sollicitudin ullamcorper eget sit amet eros. Nunc
+ut placerat sem. Nullam consequat, nulla et placerat iaculis,
+odio turpis elementum tellus, auctor faucibus arcu felis tempus risus.
+Praesent leo sem, vehicula eu magna sed, commodo lobortis risus.
+Cras in arcu ac dolor condimentum ultricies sed eu tortor.
+Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Quisque ut diam elit. Etiam at nulla posuere est tempor dignissim.
+Phasellus sed aliquam turpis, sit amet vehicula turpis.
