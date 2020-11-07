@@ -20,11 +20,11 @@ pub struct Opt {
 
     // Amount of lines to remove from final report size, so that the prompt being
     // printed afterward will fit.
-    #[structopt(short = "-x", long = "final-shrink", default_value="2")]
+    #[structopt(short = "-x", long = "final-shrink", default_value = "2")]
     pub final_shrink: usize,
 
     // Interline delay for demoing purposes
-    #[structopt(short = "-D", long = "interline-delay", default_value="0")]
+    #[structopt(short = "-D", long = "interline-delay", default_value = "0")]
     pub interline_delay: usize,
 
     #[structopt(short = "-d", long = "debug")]

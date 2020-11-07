@@ -1,27 +1,26 @@
 use anyhow::Result;
-use thiserror::Error;
+use regex::{Regex, RegexSet};
+use slab::Slab;
+use std::io::{stdout, Write};
 use structopt::StructOpt;
 use termion::screen::AlternateScreen;
-use std::io::{Write, stdout};
-use slab::Slab;
-use regex::{RegexSet, Regex};
+use thiserror::Error;
 
 mod cmdline;
-mod program;
 mod display;
+mod program;
 mod util;
 
-use util::most_equal_divide;
-use program::Program;
 use display::DisplayKind;
 use futures::channel::mpsc;
+use program::Program;
+use util::most_equal_divide;
 
 type Sender<T> = mpsc::UnboundedSender<T>;
 type Receiver<T> = mpsc::UnboundedReceiver<T>;
 type Key = usize;
 type Text = String;
 type PairId = usize;
-
 
 #[derive(Error, Debug)]
 pub(crate) enum Error {
@@ -84,7 +83,7 @@ impl Main {
     fn new() -> Self {
         let (broker_sender, broker_receiver) = mpsc::unbounded();
 
-        let a : &[&String] = &[];
+        let a: &[&String] = &[];
         Self {
             opt: cmdline::Opt::from_args(),
             programs: Slab::new(),
@@ -106,7 +105,7 @@ impl Main {
             let mut found = false;
             for name in r.capture_names() {
                 if name == Some("M") {
-                    found  = true;
+                    found = true;
                 }
             }
 
@@ -134,6 +133,7 @@ impl Main {
             regex_set.push(String::from(pair.end.as_str()));
             self.match_pairs.push(pair);
         }
+
         self.regex_set = RegexSet::new(&regex_set)?;
 
         if self.opt.programs.is_empty() {
@@ -145,11 +145,15 @@ impl Main {
         drop(self.sender.take());
 
         if !self.opt.replay || self.opt.debug {
-            async_std::task::block_on(async { let _ = self.run_loop().await; });
+            async_std::task::block_on(async {
+                let _ = self.run_loop().await;
+            });
         } else {
             {
                 let mut screen = AlternateScreen::from(stdout());
-                async_std::task::block_on(async { let _ = self.run_loop().await; });
+                async_std::task::block_on(async {
+                    let _ = self.run_loop().await;
+                });
                 screen.flush().unwrap();
             }
 
@@ -177,9 +181,12 @@ impl Main {
         Ok(())
     }
 
-    async fn stdin_loop(key: Key, mut sender: Sender<(Key, Result<Text, std::io::Error>)>) -> Result<()> {
-        use async_std::io::BufReader;
+    async fn stdin_loop(
+        key: Key,
+        mut sender: Sender<(Key, Result<Text, std::io::Error>)>,
+    ) -> Result<()> {
         use async_std::io;
+        use async_std::io::BufReader;
         use async_std::prelude::*;
         use futures::SinkExt;
 
@@ -226,7 +233,9 @@ impl Main {
             }
 
             if self.opt.interline_delay > 0 {
-                std::thread::sleep(std::time::Duration::from_millis(self.opt.interline_delay as u64));
+                std::thread::sleep(std::time::Duration::from_millis(
+                    self.opt.interline_delay as u64,
+                ));
             }
         }
 
@@ -239,97 +248,106 @@ impl Main {
     }
 
     fn redraw(&self, draw_mode: DrawMode) -> Result<()> {
-         let (cx, cy) = termion::terminal_size()?;
+        let (cx, cy) = termion::terminal_size()?;
 
-         let cy = cy - match draw_mode {
-             DrawMode::Final => self.opt.final_shrink as u16,
-             DrawMode::Ongoing => 0,
-         };
+        let cy = cy
+            - match draw_mode {
+                DrawMode::Final => self.opt.final_shrink as u16,
+                DrawMode::Ongoing => 0,
+            };
 
-         let mut descriptions = vec![];
+        let mut descriptions = vec![];
 
-         print!("{}", termion::cursor::Goto(1, 1));
+        print!("{}", termion::cursor::Goto(1, 1));
 
-         for (_, program) in &self.programs {
-             descriptions.push(program.calc_display_description(cx as usize, 0));
-         }
+        for (_, program) in &self.programs {
+            descriptions.push(program.calc_display_description(cx as usize, 0));
+        }
 
-         let mut total_lines = 0;
-         for description in &descriptions {
-             total_lines += description.lines().len();
-         }
+        let mut total_lines = 0;
+        for description in &descriptions {
+            total_lines += description.lines().len();
+        }
 
-         let l = descriptions.len();
-         if total_lines > cy as usize {
-             for (idx, description) in descriptions.iter_mut().enumerate() {
-                 let max = most_equal_divide(cy as u64, l as u64, idx as u64);
-                 description.reduce_to_count(max as usize);
-             }
-         } else if total_lines < cy as usize {
-             let extra = cy as usize - total_lines;
+        let l = descriptions.len();
+        if total_lines > cy as usize {
+            for (idx, description) in descriptions.iter_mut().enumerate() {
+                let max = most_equal_divide(cy as u64, l as u64, idx as u64);
+                description.reduce_to_count(max as usize);
+            }
+        } else if total_lines < cy as usize {
+            let extra = cy as usize - total_lines;
 
-             descriptions.clear();
-             for (idx, (_, program)) in self.programs.iter().enumerate() {
-                 let added = most_equal_divide(extra as u64, l as u64, idx as u64);
-                 descriptions.push(program.calc_display_description(cx as usize,
-                         added as usize));
-             }
-         }
+            descriptions.clear();
+            for (idx, (_, program)) in self.programs.iter().enumerate() {
+                let added = most_equal_divide(extra as u64, l as u64, idx as u64);
+                descriptions.push(program.calc_display_description(cx as usize, added as usize));
+            }
+        }
 
-         let mut stdout = stdout();
+        let mut stdout = stdout();
 
-         let mut line_idx = 0;
-         for description in descriptions.iter() {
-             for line in description.lines() {
-                 match line.kind {
-                     DisplayKind::MiddleTextCut(true) |
-                     DisplayKind::Text(true) => {
-                         write!(stdout, "{}{}",
-                             termion::style::Bold,
-                             termion::color::Fg(termion::color::Cyan))?;
-                     }
-                     _ => {}
-                 }
+        let mut line_idx = 0;
+        for description in descriptions.iter() {
+            for line in description.lines() {
+                match line.kind {
+                    DisplayKind::MiddleTextCut(true) | DisplayKind::Text(true) => {
+                        write!(
+                            stdout,
+                            "{}{}",
+                            termion::style::Bold,
+                            termion::color::Fg(termion::color::Cyan)
+                        )?;
+                    }
+                    _ => {}
+                }
 
-                 write!(stdout, "{}{:>width$}{}{}",
-                     termion::style::Bold, "", line.prefix,
-                     termion::style::Reset, width = line.indent)?;
+                write!(
+                    stdout,
+                    "{}{:>width$}{}{}",
+                    termion::style::Bold,
+                    "",
+                    line.prefix,
+                    termion::style::Reset,
+                    width = line.indent
+                )?;
 
-                 match line.kind {
-                     DisplayKind::ProgramTitle |
-                     DisplayKind::Title(true) => {
-                         write!(stdout, "{}{}",
-                             termion::style::Bold,
-                             termion::color::Fg(termion::color::Cyan))?;
-                     }
-                     _ => {}
-                 }
+                match line.kind {
+                    DisplayKind::ProgramTitle | DisplayKind::Title(true) => {
+                        write!(
+                            stdout,
+                            "{}{}",
+                            termion::style::Bold,
+                            termion::color::Fg(termion::color::Cyan)
+                        )?;
+                    }
+                    _ => {}
+                }
 
-                 for fragment in line.text.iter() {
-                     write!(stdout, "{}", fragment)?;
-                 }
+                for fragment in line.text.iter() {
+                    write!(stdout, "{}", fragment)?;
+                }
 
-                 match line.kind {
-                     DisplayKind::ProgramTitle |
-                     DisplayKind::Title(true) => {
-                         write!(stdout, "{}", termion::style::Reset)?;
-                     }
-                     _ => {}
-                 }
+                match line.kind {
+                    DisplayKind::ProgramTitle | DisplayKind::Title(true) => {
+                        write!(stdout, "{}", termion::style::Reset)?;
+                    }
+                    _ => {}
+                }
 
-                 line_idx += 1;
+                line_idx += 1;
 
-                 if line_idx == cy {
-                     write!(stdout, "{}", termion::clear::UntilNewline)?;
-                 } else {
-                     writeln!(stdout, "{}", termion::clear::UntilNewline)?;
-                 }
-             }
-         }
-         write!(stdout, "{}", termion::clear::AfterCursor)?;
-         stdout.flush()?;
+                if line_idx == cy {
+                    write!(stdout, "{}", termion::clear::UntilNewline)?;
+                } else {
+                    writeln!(stdout, "{}", termion::clear::UntilNewline)?;
+                }
+            }
+        }
+        write!(stdout, "{}", termion::clear::AfterCursor)?;
+        stdout.flush()?;
 
-         Ok(())
+        Ok(())
     }
 
     fn end_emit_output(&self, output: &Output, indent: usize) {
@@ -380,16 +398,14 @@ impl Main {
     }
 }
 
-static mut INTERRUPTED : bool = false;
+static mut INTERRUPTED: bool = false;
 
 fn set_ctrl_c_handler() -> Result<()> {
-    ctrlc::set_handler(move || {
-        unsafe {
-            if INTERRUPTED {
-                std::process::exit(-1);
-            }
-            INTERRUPTED = true;
+    ctrlc::set_handler(move || unsafe {
+        if INTERRUPTED {
+            std::process::exit(-1);
         }
+        INTERRUPTED = true;
     })?;
 
     Ok(())
