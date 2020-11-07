@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 use regex::{Regex, RegexSet};
 use slab::Slab;
 use std::fs::File;
-use std::io::{stdout, BufRead, Write};
+use std::io::{stdout, BufRead, Write, BufWriter, Stdout};
 use structopt::StructOpt;
 use termion::screen::AlternateScreen;
 use thiserror::Error;
@@ -385,6 +385,7 @@ impl Main {
 
         let ctrlc = async_ctrlc::CtrlC::new().expect("cannot create Ctrl+C handler?");
         let mut ctrlc_stream = ctrlc.enumerate().take(3);
+        let mut stdout = BufWriter::with_capacity(0x10000, stdout());
 
         loop {
             futures::select! {
@@ -396,7 +397,7 @@ impl Main {
                         }
 
                         if !self.opt.debug {
-                            self.redraw(DrawMode::Ongoing)?;
+                            self.redraw(DrawMode::Ongoing, &mut stdout)?;
                         }
 
                         if self.opt.interline_delay > 0 {
@@ -415,7 +416,7 @@ impl Main {
         }
 
         if !self.opt.debug {
-            self.redraw(DrawMode::Final)?;
+            self.redraw(DrawMode::Final, &mut stdout)?;
             println!("{}", termion::cursor::Show);
         }
 
@@ -426,7 +427,7 @@ impl Main {
         Ok(())
     }
 
-    fn redraw(&self, draw_mode: DrawMode) -> Result<()> {
+    fn redraw(&self, draw_mode: DrawMode, stdout: &mut BufWriter<Stdout>) -> Result<()> {
         let (cx, cy) = termion::terminal_size()?;
 
         let cy = cy
@@ -436,8 +437,6 @@ impl Main {
             };
 
         let mut descriptions = vec![];
-
-        print!("{}", termion::cursor::Goto(1, 1));
 
         for (_, program) in &self.programs {
             descriptions.push(program.calc_display_description(cx as usize, 0));
@@ -464,7 +463,7 @@ impl Main {
             }
         }
 
-        let mut stdout = stdout();
+        write!(stdout, "{}", termion::cursor::Goto(1, 1))?;
 
         let mut line_idx = 0;
         for description in descriptions.iter() {
@@ -582,7 +581,7 @@ impl Main {
 fn init_async() {
     let var = "ASYNC_STD_THREAD_COUNT";
     let prev = std::env::var(var);
-    std::env::set_var(var, "4");
+    std::env::set_var(var, "1");
     async_std::task::block_on(async {});
     match prev {
         Err(_) => {
