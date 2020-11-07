@@ -1,7 +1,8 @@
 use anyhow::Result;
 use regex::{Regex, RegexSet};
 use slab::Slab;
-use std::io::{stdout, Write};
+use std::fs::File;
+use std::io::{stdout, BufRead, Write};
 use structopt::StructOpt;
 use termion::screen::AlternateScreen;
 use thiserror::Error;
@@ -32,6 +33,9 @@ pub(crate) enum Error {
 
     #[error("Multiple captures and no capture named M for regex {0}")]
     CaptureNameNotFound(String),
+
+    #[error("Unpaired Rege in file {0}. (Odd number of lines in it?)")]
+    UnpairedRegexInFile(String),
 }
 
 struct Encapsulation {
@@ -132,6 +136,28 @@ impl Main {
             regex_set.push(String::from(pair.start.as_str()));
             regex_set.push(String::from(pair.end.as_str()));
             self.match_pairs.push(pair);
+        }
+
+        if let Some(match_pairs_file) = &self.opt.match_pairs_file {
+            let mut start = None;
+
+            for line in std::io::BufReader::new(File::open(match_pairs_file)?).lines() {
+                if start.is_none() {
+                    start = Some(line?);
+                    continue;
+                }
+
+                let start = Self::regex(&start.take().unwrap())?;
+                let end = Self::regex(&line?)?;
+                let pair = MatchPair { start, end };
+                regex_set.push(String::from(pair.start.as_str()));
+                regex_set.push(String::from(pair.end.as_str()));
+                self.match_pairs.push(pair);
+            }
+
+            if let Some(start) = start {
+                return Err(Error::UnpairedRegexInFile(start).into());
+            }
         }
 
         self.regex_set = RegexSet::new(&regex_set)?;

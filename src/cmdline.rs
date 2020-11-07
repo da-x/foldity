@@ -13,6 +13,10 @@ pub struct Opt {
     #[structopt(short = "-e", long = "match-end")]
     pub match_end: Vec<String>,
 
+    // Load additional Regex pairs from given file, one pair per two lines.
+    #[structopt(short = "-f", long = "match-pairs-file")]
+    pub match_pairs_file: Option<String>,
+
     // Work in an alternative screen, and dump the original input after we are done
     // processing.
     #[structopt(short = "-r", long = "replay")]
