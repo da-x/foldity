@@ -62,7 +62,7 @@ impl Encapsulation {
 }
 
 enum Output {
-    Line(Text),
+    Lines(Vec<Text>),
     Encapsulation(Encapsulation),
 }
 
@@ -530,12 +530,14 @@ impl Main {
 
     fn end_emit_output(&self, output: &Output, indent: usize) {
         match output {
-            Output::Line(text) => {
-                if self.opt.debug {
-                    print!("{:>width$}", "", width = indent);
-                    println!("Line: {}", text);
-                } else {
-                    println!("{}", text);
+            Output::Lines(text) => {
+                for text in text {
+                    if self.opt.debug {
+                        print!("{:>width$}", "", width = indent);
+                        println!("Line: {}", text);
+                    } else {
+                        println!("{}", text);
+                    }
                 }
             }
             Output::Encapsulation(encapsulation) => {

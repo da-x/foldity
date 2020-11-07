@@ -88,108 +88,92 @@ impl<'a> DisplayDescription<'a> {
         allowed_extra: usize,
         last: bool,
     ) {
-        let mut i = 0;
         let n = content.len();
         let vertical = "⫼ ";
         let cut = "+-------------------------------------";
 
-        while i < n {
-            let mut lines = 0;
-            while i + lines < n {
-                if !matches!(&content[i + lines], Output::Line(_)) {
-                    break;
+        for (idx, output) in content.iter().enumerate() {
+            match output {
+                Output::Encapsulation(encapsulation) => {
+                    if let Some(end_title) = &encapsulation.end_title {
+                        let mut text = SmallVec::new();
+                        text.push(encapsulation.start_title.as_str().into());
+                        if end_title.len() > 0 {
+                            text.push(" ".into());
+                            text.push(end_title.as_str().into());
+                        }
+                        self.add_line(DisplayLine {
+                            indent,
+                            kind: DisplayKind::Title(false),
+                            prefix: "└── ",
+                            text,
+                        });
+                    } else {
+                        let mut text = SmallVec::new();
+                        text.push(encapsulation.start_title.as_str().into());
+                        self.add_line(DisplayLine {
+                            indent,
+                            kind: DisplayKind::Title(true),
+                            prefix: "└── ",
+                            text,
+                        });
+                        self.add_content(
+                            &encapsulation.content,
+                            indent + 4,
+                            allowed_extra,
+                            last && idx + 1 == n,
+                        );
+                    }
                 }
-                lines += 1;
-            }
+                Output::Lines(lines) => {
+                    let nr_lines = lines.len();
 
-            let minimum = 3;
-            let mut minimization_threshold = minimum;
-            let last_here = if lines + i == n {
-                // Nothing follows the lines, allow more regular lines
-                minimization_threshold += allowed_extra;
-                last
-            } else {
-                false
-            };
+                    let minimum = 3;
+                    let mut minimization_threshold = minimum;
+                    let last_here = if idx + 1 == n {
+                        // Nothing follows the lines, allow more regular lines
+                        minimization_threshold += allowed_extra;
+                        last
+                    } else {
+                        false
+                    };
 
-            if lines > minimization_threshold {
-                // First and last_here line
-                if let Output::Line(s) = &content[i] {
-                    self.add_line(DisplayLine {
-                        indent,
-                        kind: DisplayKind::Text(last_here),
-                        prefix: vertical,
-                        text: SmallVec::from_elem(s.as_str().into(), 1),
-                    });
-                }
-                self.add_line(DisplayLine {
-                    indent,
-                    kind: DisplayKind::MiddleTextCut(last_here),
-                    prefix: cut,
-                    text: SmallVec::new(),
-                });
-                for x in i + lines - 1 - (minimization_threshold - minimum)..i + lines {
-                    if let Output::Line(s) = &content[x] {
+                    if nr_lines > minimization_threshold {
+                        // First and last_here line
                         self.add_line(DisplayLine {
                             indent,
                             kind: DisplayKind::Text(last_here),
                             prefix: vertical,
-                            text: SmallVec::from_elem(s.as_str().into(), 1),
+                            text: SmallVec::from_elem(lines[0].as_str().into(), 1),
                         });
-                    }
-                }
-                i += lines;
-                continue;
-            } else if lines > 0 {
-                // All lines
-                for x in i..i + lines {
-                    if let Output::Line(s) = &content[x] {
                         self.add_line(DisplayLine {
                             indent,
-                            kind: DisplayKind::Text(last_here),
-                            prefix: vertical,
-                            text: SmallVec::from_elem(s.as_str().into(), 1),
+                            kind: DisplayKind::MiddleTextCut(last_here),
+                            prefix: cut,
+                            text: SmallVec::new(),
                         });
+                        for x in nr_lines - 1 - (minimization_threshold - minimum)
+                            ..nr_lines
+                        {
+                            self.add_line(DisplayLine {
+                                indent,
+                                kind: DisplayKind::Text(last_here),
+                                prefix: vertical,
+                                text: SmallVec::from_elem(lines[x].as_str().into(), 1),
+                            });
+                        }
+                    } else {
+                        // All lines
+                        for line in lines {
+                            self.add_line(DisplayLine {
+                                indent,
+                                kind: DisplayKind::Text(last_here),
+                                prefix: vertical,
+                                text: SmallVec::from_elem(line.as_str().into(), 1),
+                            });
+                        }
                     }
                 }
-                i += lines;
-                continue;
-            }
-
-            if let Output::Encapsulation(encapsulation) = &content[i] {
-                if let Some(end_title) = &encapsulation.end_title {
-                    let mut text = SmallVec::new();
-                    text.push(encapsulation.start_title.as_str().into());
-                    if end_title.len() > 0 {
-                        text.push(" ".into());
-                        text.push(end_title.as_str().into());
-                    }
-                    self.add_line(DisplayLine {
-                        indent,
-                        kind: DisplayKind::Title(false),
-                        prefix: "└── ",
-                        text,
-                    });
-                } else {
-                    let mut text = SmallVec::new();
-                    text.push(encapsulation.start_title.as_str().into());
-                    self.add_line(DisplayLine {
-                        indent,
-                        kind: DisplayKind::Title(true),
-                        prefix: "└── ",
-                        text,
-                    });
-                    self.add_content(
-                        &encapsulation.content,
-                        indent + 4,
-                        allowed_extra,
-                        last && i == n - 1,
-                    );
-                }
-
-                i += 1;
-            } else {
-                panic!();
             }
         }
     }

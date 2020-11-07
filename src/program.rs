@@ -11,6 +11,11 @@ pub struct Program {
     shutdowns: Vec<super::Sender<()>>,
 }
 
+enum OutputPush {
+    Line(Text),
+    Encapsulation(Encapsulation),
+}
+
 impl Program {
     pub(crate) fn content(&self) -> &Vec<Output> {
         &self.content
@@ -76,14 +81,14 @@ impl Program {
                         end_title: None,
                         content: vec![],
                     };
-                    Self::push_regular(&mut self.content, Output::Encapsulation(encapsulation));
+                    Self::push_regular(&mut self.content, OutputPush::Encapsulation(encapsulation));
                 }
                 Side::End => {
                     let _ = Self::push_end(&mut self.content, (title, s, pair_id));
                 }
             }
         } else {
-            Self::push_regular(&mut self.content, Output::Line(s));
+            Self::push_regular(&mut self.content, OutputPush::Line(s));
         }
     }
 
@@ -93,7 +98,7 @@ impl Program {
     ) -> Option<(String, String, PairId)> {
         if let Some(last) = content.last_mut() {
             match last {
-                Output::Line(_) => Some(s),
+                Output::Lines(_) => Some(s),
                 Output::Encapsulation(encapsulation) => {
                     if encapsulation.is_ended() {
                         return Some(s);
@@ -111,22 +116,43 @@ impl Program {
         }
     }
 
-    fn push_regular(content: &mut Vec<Output>, s: Output) {
+    fn push_regular(content: &mut Vec<Output>, s: OutputPush) {
         if let Some(last) = content.last_mut() {
             match last {
-                Output::Line(_) => {
-                    content.push(s);
+                Output::Lines(lines) => {
+                    match s {
+                        OutputPush::Line(s) => {
+                            lines.push(s);
+                        }
+                        OutputPush::Encapsulation(e) => {
+                            content.push(Output::Encapsulation(e));
+                        }
+                    }
                 }
                 Output::Encapsulation(encapsulation) => {
                     if encapsulation.is_ended() {
-                        content.push(s);
+                        match s {
+                            OutputPush::Line(s) => {
+                                content.push(Output::Lines(vec![s]));
+                            }
+                            OutputPush::Encapsulation(e) => {
+                                content.push(Output::Encapsulation(e));
+                            }
+                        }
                     } else {
                         Self::push_regular(&mut encapsulation.content, s);
                     }
                 }
             }
         } else {
-            content.push(s);
+            match s {
+                OutputPush::Line(s) => {
+                    content.push(Output::Lines(vec![s]));
+                }
+                OutputPush::Encapsulation(e) => {
+                    content.push(Output::Encapsulation(e));
+                }
+            }
         }
     }
 
