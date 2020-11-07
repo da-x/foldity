@@ -359,7 +359,7 @@ impl Main {
                         sender.send((key, Err(err))).await?;
                         break;
                     }
-                    None => { }
+                    None => break,
                 },
                 shutdown = receiver.next().fuse() => match shutdown {
                     Some(_) => break,
@@ -405,7 +405,7 @@ impl Main {
                             )).await;
                         }
                     },
-                    None => { }
+                    None => break,
                 },
                 ctrlc = ctrlc_stream.next().fuse() => match ctrlc {
                     Some(_) => break,
