@@ -152,9 +152,7 @@ impl<'a> DisplayDescription<'a> {
                             prefix: cut,
                             text: SmallVec::new(),
                         });
-                        for x in nr_lines - 1 - (minimization_threshold - minimum)
-                            ..nr_lines
-                        {
+                        for x in nr_lines - 1 - (minimization_threshold - minimum)..nr_lines {
                             self.add_line(DisplayLine {
                                 indent,
                                 kind: DisplayKind::Text(last_here),

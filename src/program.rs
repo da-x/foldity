@@ -119,16 +119,14 @@ impl Program {
     fn push_regular(content: &mut Vec<Output>, s: OutputPush) {
         if let Some(last) = content.last_mut() {
             match last {
-                Output::Lines(lines) => {
-                    match s {
-                        OutputPush::Line(s) => {
-                            lines.push(s);
-                        }
-                        OutputPush::Encapsulation(e) => {
-                            content.push(Output::Encapsulation(e));
-                        }
+                Output::Lines(lines) => match s {
+                    OutputPush::Line(s) => {
+                        lines.push(s);
                     }
-                }
+                    OutputPush::Encapsulation(e) => {
+                        content.push(Output::Encapsulation(e));
+                    }
+                },
                 Output::Encapsulation(encapsulation) => {
                     if encapsulation.is_ended() {
                         match s {

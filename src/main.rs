@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 use regex::{Regex, RegexSet};
 use slab::Slab;
 use std::fs::File;
-use std::io::{stdout, BufRead, Write, BufWriter, Stdout};
+use std::io::{stdout, BufRead, BufWriter, Stdout, Write};
 use structopt::StructOpt;
 use termion::screen::AlternateScreen;
 use thiserror::Error;
@@ -386,9 +386,27 @@ impl Main {
         let ctrlc = async_ctrlc::CtrlC::new().expect("cannot create Ctrl+C handler?");
         let mut ctrlc_stream = ctrlc.enumerate().take(3);
         let mut stdout = BufWriter::with_capacity(0x10000, stdout());
+        let mut last_redraw_time = std::time::Instant::now();
+        let mut need_redraw = false;
+        let min_refresh_time = std::time::Duration::from_millis(4);
 
         loop {
+            let never = async_std::future::pending::<()>();
+            let dur = if need_redraw {
+                min_refresh_time
+            } else {
+                std::time::Duration::from_millis(1000)
+            };
+
             futures::select! {
+                timeout = async_std::future::timeout(dur, never).fuse() => {
+                    let now = std::time::Instant::now();
+                    if last_redraw_time + min_refresh_time <= now {
+                        self.redraw(DrawMode::Ongoing, &mut stdout)?;
+                        last_redraw_time = now;
+                        need_redraw = false
+                    }
+                },
                 r = self.receiver.next().fuse() => match r {
                     Some((key, item)) => {
                         if let Ok(s) = item {
@@ -397,7 +415,13 @@ impl Main {
                         }
 
                         if !self.opt.debug {
-                            self.redraw(DrawMode::Ongoing, &mut stdout)?;
+                            let now = std::time::Instant::now();
+                            if last_redraw_time + min_refresh_time <= now {
+                                self.redraw(DrawMode::Ongoing, &mut stdout)?;
+                                last_redraw_time = now;
+                            } else {
+                                need_redraw = true;
+                            }
                         }
 
                         if self.opt.interline_delay > 0 {
