@@ -2,7 +2,7 @@ use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
 pub struct Opt {
-    // Programs to execute
+    // Programs to execute, instead of reading 'stdin'. These are separated by '-/-'.
     pub programs: Vec<String>,
 
     // Regex to match context beginning
@@ -16,6 +16,15 @@ pub struct Opt {
     // Load additional Regex pairs from given file, one pair per two lines.
     #[structopt(short = "-f", long = "match-pairs-file")]
     pub match_pairs_file: Option<String>,
+
+    // Instead of stdin, describe shell programs to from given input file
+    // a shell script per line. If '-' then reads shell scripts from stdin.
+    #[structopt(short = "-p", long = "programs-file")]
+    pub programs_file: Option<String>,
+
+    // Use provided shell executable rather than the default `/bin/sh`.
+    #[structopt(short = "-C", long = "shell")]
+    pub shell: Option<String>,
 
     // Work in an alternative screen, and dump the original input after we are done
     // processing.

@@ -36,6 +36,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-ctrlc"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "907279f6e91a51c8ec7cac24711e8308f21da7c10c7700ca2f7e125694ed2df1"
+dependencies = [
+ "ctrlc",
+ "futures-core",
+]
+
+[[package]]
 name = "async-executor"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -275,11 +285,13 @@ name = "foldity"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-ctrlc",
  "async-std",
- "ctrlc",
  "futures",
  "itertools",
+ "lazy_static",
  "regex",
+ "shell-escape",
  "slab",
  "smallvec",
  "structopt",
@@ -672,6 +684,12 @@ name = "regex-syntax"
 version = "0.6.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b181ba2dcf07aaccad5448e8ead58db5b742cf85dfe035e2227f137a539a189"
+
+[[package]]
+name = "shell-escape"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45bb67a18fa91266cc7807181f62f9178a6873bfad7dc788c42e6430db40184f"
 
 [[package]]
 name = "slab"

@@ -1,10 +1,14 @@
 use super::display::{DisplayDescription, DisplayKind, DisplayLine};
 use super::{Encapsulation, Matchers, Output, PairId, Text};
+use futures::SinkExt;
 use smallvec::SmallVec;
+use std::process::Child;
 
 pub struct Program {
     desc: String,
     content: Vec<Output>,
+    pub child: Option<Child>,
+    shutdowns: Vec<super::Sender<()>>,
 }
 
 impl Program {
@@ -12,10 +16,25 @@ impl Program {
         &self.content
     }
 
-    pub fn new(desc: String) -> Self {
+    pub fn new(desc: String, shutdowns: Vec<super::Sender<()>>) -> Self {
         Self {
             desc,
+            child: None,
             content: vec![],
+            shutdowns,
+        }
+    }
+
+    pub async fn shutdown(&mut self) {
+        for mut shutdown in self.shutdowns.drain(..) {
+            let _ = shutdown.send(()).await;
+        }
+    }
+
+    pub fn with_child(self, child: Child) -> Self {
+        Self {
+            child: Some(child),
+            ..self
         }
     }
 

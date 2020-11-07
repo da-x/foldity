@@ -1,4 +1,8 @@
+#![recursion_limit = "256"]
 use anyhow::Result;
+use futures::FutureExt;
+use futures::SinkExt;
+use lazy_static::lazy_static;
 use regex::{Regex, RegexSet};
 use slab::Slab;
 use std::fs::File;
@@ -36,6 +40,9 @@ pub(crate) enum Error {
 
     #[error("Unpaired Rege in file {0}. (Odd number of lines in it?)")]
     UnpairedRegexInFile(String),
+
+    #[error("No programs specified")]
+    NoPrograms,
 }
 
 struct Encapsulation {
@@ -88,6 +95,7 @@ impl Main {
         let (broker_sender, broker_receiver) = mpsc::unbounded();
 
         let a: &[&String] = &[];
+
         Self {
             opt: cmdline::Opt::from_args(),
             programs: Slab::new(),
@@ -162,10 +170,14 @@ impl Main {
 
         self.regex_set = RegexSet::new(&regex_set)?;
 
-        if self.opt.programs.is_empty() {
-            self.insert_stdin()?;
-        } else {
-            todo!("support multiple programs specified in command line");
+        self.load_programs()?;
+
+        if self.programs.is_empty() {
+            if self.opt.programs_file.is_none() {
+                self.insert_stdin()?;
+            } else {
+                return Err(Error::NoPrograms.into());
+            }
         }
 
         drop(self.sender.take());
@@ -193,39 +205,166 @@ impl Main {
         Ok(())
     }
 
-    fn insert_stdin(&mut self) -> Result<()> {
+    fn add_child_program(&mut self, desc: String, mut child: std::process::Child) -> Result<()> {
+        let stderr = child.stderr.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+
+        let (stderr, stdout) = unsafe {
+            use std::os::unix::io::FromRawFd;
+            use std::os::unix::io::IntoRawFd;
+            let stderr = stderr.into_raw_fd();
+            let stdout = stdout.into_raw_fd();
+            let stderr = async_std::fs::File::from_raw_fd(stderr);
+            let stdout = async_std::fs::File::from_raw_fd(stdout);
+            (stderr, stdout)
+        };
+
         let entry = self.programs.vacant_entry();
         let key = entry.key();
-        let broker_sender = self.sender.clone().unwrap();
+        let mut shutdown_senders = vec![];
 
+        let (_shutdown_sender, shutdown_receiver) = mpsc::unbounded::<()>();
+        shutdown_senders.push(_shutdown_sender);
+        let broker_sender = self.sender.clone().unwrap();
         async_std::task::spawn(async move {
-            let _res = Self::stdin_loop(key, broker_sender).await;
+            let _res = Self::read_loop(key, broker_sender, shutdown_receiver, stdout).await;
         });
 
-        entry.insert(Program::new("<<stdin>>".to_owned()));
+        let (_shutdown_sender, shutdown_receiver) = mpsc::unbounded::<()>();
+        shutdown_senders.push(_shutdown_sender);
+        let broker_sender = self.sender.clone().unwrap();
+        async_std::task::spawn(async move {
+            let _res = Self::read_loop(key, broker_sender, shutdown_receiver, stderr).await;
+        });
+
+        entry.insert(Program::new(desc, shutdown_senders).with_child(child));
+        Ok(())
+    }
+
+    fn load_programs(&mut self) -> Result<()> {
+        let std = "/bin/sh".to_owned();
+        let shell = self.opt.shell.clone().unwrap_or(std);
+
+        if let Some(pathname) = &self.opt.programs_file {
+            let mut lines = vec![];
+
+            if pathname == "-" {
+                for line in std::io::BufReader::new(std::io::stdin()).lines() {
+                    lines.push(line);
+                }
+            } else {
+                let file = File::open(pathname)?;
+                for line in std::io::BufReader::new(file).lines() {
+                    lines.push(line);
+                }
+            };
+
+            for line in lines.drain(..) {
+                let line = line?;
+                let child = std::process::Command::new(shell.clone())
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .arg("-c")
+                    .arg(&line)
+                    .spawn()?;
+                self.add_child_program(line, child)?;
+            }
+        }
+
+        lazy_static! {
+            static ref RE: Regex = Regex::new("^-([/]+)-$").unwrap();
+        }
+
+        let mut next_cmd = vec![];
+        let mut cmnds = vec![];
+
+        for arg in &self.opt.programs {
+            if let Some(r) = RE.captures(&arg) {
+                let length = r.get(1).unwrap().as_str().len();
+                if length == 1 {
+                    cmnds.push(std::mem::replace(&mut next_cmd, vec![]));
+                    continue;
+                }
+
+                let arg = (0..length - 1).map(|_| "/").collect::<String>();
+                next_cmd.push(format!("-{}-", arg));
+            } else {
+                next_cmd.push(arg.to_owned());
+            }
+        }
+
+        if !next_cmd.is_empty() {
+            cmnds.push(next_cmd);
+        }
+
+        for cmnd in cmnds.drain(..) {
+            let child = std::process::Command::new(&cmnd[0])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .args(&cmnd[1..])
+                .spawn()?;
+
+            use itertools::Itertools;
+            let mut vec = cmnd.iter().map(|s| shell_escape::escape(s.as_str().into()));
+            self.add_child_program(vec.join(" "), child)?;
+        }
 
         Ok(())
     }
 
-    async fn stdin_loop(
+    fn insert_stdin(&mut self) -> Result<()> {
+        let entry = self.programs.vacant_entry();
+        let key = entry.key();
+        let broker_sender = self.sender.clone().unwrap();
+        let (_shutdown_sender, shutdown_receiver) = mpsc::unbounded::<()>();
+        let mut shutdown_senders = vec![];
+
+        async_std::task::spawn(async move {
+            let _res = Self::read_loop(
+                key,
+                broker_sender,
+                shutdown_receiver,
+                async_std::io::stdin(),
+            )
+            .await;
+        });
+
+        shutdown_senders.push(_shutdown_sender);
+        entry.insert(Program::new("<<stdin>>".to_owned(), shutdown_senders));
+
+        Ok(())
+    }
+
+    async fn read_loop<R>(
         key: Key,
         mut sender: Sender<(Key, Result<Text, std::io::Error>)>,
-    ) -> Result<()> {
-        use async_std::io;
+        mut receiver: Receiver<()>,
+        reader: R,
+    ) -> Result<()>
+    where
+        R: futures::AsyncRead + Unpin,
+    {
         use async_std::io::BufReader;
         use async_std::prelude::*;
-        use futures::SinkExt;
 
-        let stdin = io::stdin();
-        let mut lines = BufReader::new(stdin).lines();
+        let mut lines = BufReader::new(reader).lines();
 
-        while let Some(line) = lines.next().await {
-            match line {
-                Ok(s) => sender.send((key, Ok(s))).await?,
-                Err(err) => {
-                    sender.send((key, Err(err))).await?;
-                    break;
-                }
+        loop {
+            futures::select! {
+                line = lines.next().fuse() => match line {
+                    Some(Ok(s)) => sender.send((key, Ok(s))).await?,
+                    Some(Err(err)) => {
+                        sender.send((key, Err(err))).await?;
+                        break;
+                    }
+                    None => { }
+                },
+                shutdown = receiver.next().fuse() => match shutdown {
+                    Some(_) => break,
+                    None => { }
+                },
             }
         }
 
@@ -244,30 +383,44 @@ impl Main {
             println!("{}", termion::clear::All);
         }
 
-        while let Some((key, item)) = self.receiver.next().await {
-            if let Ok(s) = item {
-                let program = &mut self.programs[key];
-                program.append_line(s, &matchers);
-            }
+        let ctrlc = async_ctrlc::CtrlC::new().expect("cannot create Ctrl+C handler?");
+        let mut ctrlc_stream = ctrlc.enumerate().take(3);
 
-            if !self.opt.debug {
-                self.redraw(DrawMode::Ongoing)?;
-            }
+        loop {
+            futures::select! {
+                r = self.receiver.next().fuse() => match r {
+                    Some((key, item)) => {
+                        if let Ok(s) = item {
+                            let program = &mut self.programs[key];
+                            program.append_line(s, &matchers);
+                        }
 
-            if unsafe { INTERRUPTED } {
-                break;
-            }
+                        if !self.opt.debug {
+                            self.redraw(DrawMode::Ongoing)?;
+                        }
 
-            if self.opt.interline_delay > 0 {
-                std::thread::sleep(std::time::Duration::from_millis(
-                    self.opt.interline_delay as u64,
-                ));
+                        if self.opt.interline_delay > 0 {
+                            async_std::task::sleep(std::time::Duration::from_millis(
+                                    self.opt.interline_delay as u64,
+                            )).await;
+                        }
+                    },
+                    None => { }
+                },
+                ctrlc = ctrlc_stream.next().fuse() => match ctrlc {
+                    Some(_) => break,
+                    None => { }
+                },
             }
         }
 
         if !self.opt.debug {
             self.redraw(DrawMode::Final)?;
             println!("{}", termion::cursor::Show);
+        }
+
+        for (_, program) in &mut self.programs {
+            program.shutdown().await;
         }
 
         Ok(())
@@ -424,25 +577,12 @@ impl Main {
     }
 }
 
-static mut INTERRUPTED: bool = false;
-
-fn set_ctrl_c_handler() -> Result<()> {
-    ctrlc::set_handler(move || unsafe {
-        if INTERRUPTED {
-            std::process::exit(-1);
-        }
-        INTERRUPTED = true;
-    })?;
-
-    Ok(())
-}
-
 /// No need for too many OS pthreads. Have the minimum that std async allows, as
 /// we are doing most processing in the main thread anyway.
 fn init_async() {
     let var = "ASYNC_STD_THREAD_COUNT";
     let prev = std::env::var(var);
-    std::env::set_var(var, "1");
+    std::env::set_var(var, "4");
     async_std::task::block_on(async {});
     match prev {
         Err(_) => {
@@ -455,7 +595,6 @@ fn init_async() {
 }
 
 fn main() -> Result<()> {
-    set_ctrl_c_handler()?;
     init_async();
     Main::new().run()
 }
